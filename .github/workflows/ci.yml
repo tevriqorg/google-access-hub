@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Format source in runner
+        id: fmt
+        run: |
+          set -euo pipefail
+          gofmt -w .
+          git diff --binary > /tmp/gofmt.patch
+          if [ -s /tmp/gofmt.patch ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Upload gofmt patch
+        if: steps.fmt.outputs.changed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: gofmt-patch
+          path: /tmp/gofmt.patch
+          if-no-files-found: error
+          retention-days: 3
+      - name: Fail on unformatted source
+        if: steps.fmt.outputs.changed == 'true'
+        run: |
+          echo 'Go source requires gofmt; apply the gofmt-patch artifact.'
+          exit 1
+      - name: Test
+        run: go test ./...
+      - name: Vet
+        run: go vet ./...

@@ -1,0 +1,47 @@
+name: Runtime Artifacts
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-linux-runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Test before build
+        run: go test ./...
+      - name: Build Linux runtime
+        env:
+          CGO_ENABLED: '0'
+          GOOS: linux
+          GOARCH: amd64
+        run: |
+          set -euo pipefail
+          mkdir -p runtime
+          go build -trimpath -ldflags "-s -w -X main.commit=${GITHUB_SHA}" -o runtime/google-access-hub ./cmd/google-access-hub
+          {
+            echo "repository=${GITHUB_REPOSITORY}"
+            echo "commit=${GITHUB_SHA}"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "run_attempt=${GITHUB_RUN_ATTEMPT}"
+            go version
+          } > runtime/PROVENANCE.txt
+          (cd runtime && sha256sum google-access-hub PROVENANCE.txt > SHA256SUMS)
+          (cd runtime && sha256sum -c SHA256SUMS)
+          tar -C runtime -czf google-access-hub-linux-amd64.tar.gz google-access-hub PROVENANCE.txt SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: google-access-hub-linux-amd64
+          path: google-access-hub-linux-amd64.tar.gz
+          if-no-files-found: error
+          retention-days: 14
