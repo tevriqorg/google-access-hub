@@ -44,10 +44,9 @@ type TokenSet struct {
 	Expiry       time.Time
 }
 
-
 type EndpointError struct {
 	StatusCode int
-	Code string
+	Code       string
 }
 
 func (e *EndpointError) Error() string {
