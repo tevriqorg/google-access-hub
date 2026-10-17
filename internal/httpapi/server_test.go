@@ -155,7 +155,9 @@ func TestEndToEndOAuthPersistenceReplayRefreshAndRevoke(t *testing.T) {
 	if mismatchStart.StatusCode != http.StatusOK {
 		t.Fatalf("mismatch start status=%d body=%s", mismatchStart.StatusCode, readBody(mismatchStart))
 	}
-	var mismatch struct { AuthorizationURL string `json:"authorization_url"` }
+	var mismatch struct {
+		AuthorizationURL string `json:"authorization_url"`
+	}
 	decodeResponse(t, mismatchStart, &mismatch)
 	mismatchURL, _ := url.Parse(mismatch.AuthorizationURL)
 	userinfoSubject = "different-google-subject"
@@ -217,7 +219,9 @@ func TestEndToEndOAuthPersistenceReplayRefreshAndRevoke(t *testing.T) {
 	if rotateResp.StatusCode != http.StatusOK {
 		t.Fatalf("rotate status=%d body=%s", rotateResp.StatusCode, readBody(rotateResp))
 	}
-	var rotated struct { Token string `json:"token"` }
+	var rotated struct {
+		Token string `json:"token"`
+	}
 	decodeResponse(t, rotateResp, &rotated)
 	oldTokenResp := requestJSON(t, http.MethodGet, restartedServer.URL+"/v1/capabilities", created.Token, nil)
 	if oldTokenResp.StatusCode != http.StatusUnauthorized {
