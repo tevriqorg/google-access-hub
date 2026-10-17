@@ -10,7 +10,7 @@ import (
 )
 
 func TestAuthorizationURLUsesOfflineIncrementalPKCE(t *testing.T) {
-	c, err := New(Config{ClientID: "client", ClientSecret: "secret", RedirectURL: "https://auth.example.test/oauth/google/callback"})
+	c, err := New(Config{ClientID: "client", ClientSecret: "secret", RedirectURL: "https://auth.example.test/v1/oauth/google/callback"})
 	if err != nil {
 		t.Fatal(err)
 	}

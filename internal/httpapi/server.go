@@ -37,8 +37,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/scopes", s.scopes)
 	mux.HandleFunc("GET /v1/clients", s.clients)
 	mux.HandleFunc("POST /v1/clients", s.clients)
+	mux.HandleFunc("POST /v1/clients/{id}/disable", s.clientAction)
+	mux.HandleFunc("POST /v1/clients/{id}/rotate", s.clientAction)
 	mux.HandleFunc("POST /v1/oauth/google/start", s.oauthStart)
-	mux.HandleFunc("GET /oauth/google/callback", s.oauthCallback)
+	mux.HandleFunc("GET /v1/oauth/google/callback", s.oauthCallback)
 	mux.HandleFunc("POST /v1/revoke", s.revoke)
 	mux.HandleFunc("GET /v1/audit", s.audit)
 	return securityHeaders(mux)
@@ -184,6 +186,52 @@ func (s *Server) clients(w http.ResponseWriter, r *http.Request) {
 	token := "gahc." + id + "." + secret
 	s.auditEvent(p.ID, "client.create", "", "", true, "client="+id)
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "name": in.Name, "capabilities": client.AllowedCapabilities, "token": token, "token_displayed_once": true})
+}
+
+func (s *Server) clientAction(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.authorize(w, r)
+	if !ok {
+		return
+	}
+	if !p.Admin {
+		writeError(w, http.StatusForbidden, "admin authorization required")
+		return
+	}
+	id := strings.TrimSpace(r.PathValue("id"))
+	client, exists := s.Store.Client(id)
+	if !exists {
+		writeError(w, http.StatusNotFound, "client not found")
+		return
+	}
+	now := time.Now().UTC()
+	switch {
+	case strings.HasSuffix(r.URL.Path, "/disable"):
+		client.Enabled = false
+		client.UpdatedAt = now
+		if err := s.Store.PutClient(client); err != nil {
+			writeError(w, http.StatusInternalServerError, "unable to disable client")
+			return
+		}
+		s.auditEvent(p.ID, "client.disable", "", "", true, "client="+id)
+		writeJSON(w, http.StatusOK, map[string]any{"id": id, "enabled": false})
+	case strings.HasSuffix(r.URL.Path, "/rotate"):
+		secret, err := secure.RandomToken(32)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "unable to rotate client")
+			return
+		}
+		client.TokenHash = secure.HashToken(secret)
+		client.Enabled = true
+		client.UpdatedAt = now
+		if err := s.Store.PutClient(client); err != nil {
+			writeError(w, http.StatusInternalServerError, "unable to rotate client")
+			return
+		}
+		s.auditEvent(p.ID, "client.rotate", "", "", true, "client="+id)
+		writeJSON(w, http.StatusOK, map[string]any{"id": id, "enabled": true, "token": "gahc." + id + "." + secret, "token_displayed_once": true})
+	default:
+		writeError(w, http.StatusNotFound, "unknown client action")
+	}
 }
 
 func (s *Server) oauthStart(w http.ResponseWriter, r *http.Request) {

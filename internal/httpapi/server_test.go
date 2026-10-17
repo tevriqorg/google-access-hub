@@ -23,6 +23,7 @@ func TestEndToEndOAuthPersistenceReplayRefreshAndRevoke(t *testing.T) {
 	refreshRequests := 0
 	revokeRequests := 0
 	invalidateRefresh := false
+	userinfoSubject := "google-subject-1"
 	google := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/token":
@@ -55,7 +56,7 @@ func TestEndToEndOAuthPersistenceReplayRefreshAndRevoke(t *testing.T) {
 				http.Error(w, "bad access", 401)
 				return
 			}
-			writeFakeJSON(w, map[string]any{"sub": "google-subject-1", "email": "owner@example.test", "email_verified": true, "name": "Owner"})
+			writeFakeJSON(w, map[string]any{"sub": userinfoSubject, "email": "owner@example.test", "email_verified": true, "name": "Owner"})
 		case "/revoke":
 			revokeRequests++
 			w.WriteHeader(http.StatusOK)
@@ -87,6 +88,7 @@ func TestEndToEndOAuthPersistenceReplayRefreshAndRevoke(t *testing.T) {
 		t.Fatalf("client status=%d body=%s", clientResp.StatusCode, readBody(clientResp))
 	}
 	var created struct {
+		ID    string `json:"id"`
 		Token string `json:"token"`
 	}
 	decodeResponse(t, clientResp, &created)
@@ -115,7 +117,7 @@ func TestEndToEndOAuthPersistenceReplayRefreshAndRevoke(t *testing.T) {
 		t.Fatalf("authorization query=%v", authURL.Query())
 	}
 
-	callbackReq, _ := http.NewRequest(http.MethodGet, app.URL+"/oauth/google/callback?state="+url.QueryEscape(stateValue)+"&code=good-code", nil)
+	callbackReq, _ := http.NewRequest(http.MethodGet, app.URL+"/v1/oauth/google/callback?state="+url.QueryEscape(stateValue)+"&code=good-code", nil)
 	callbackReq.Header.Set("Accept", "application/json")
 	callbackResp, err := http.DefaultClient.Do(callbackReq)
 	if err != nil {
@@ -138,7 +140,7 @@ func TestEndToEndOAuthPersistenceReplayRefreshAndRevoke(t *testing.T) {
 		t.Fatalf("account=%+v ok=%v", account, ok)
 	}
 
-	replayReq, _ := http.NewRequest(http.MethodGet, app.URL+"/oauth/google/callback?state="+url.QueryEscape(stateValue)+"&code=good-code", nil)
+	replayReq, _ := http.NewRequest(http.MethodGet, app.URL+"/v1/oauth/google/callback?state="+url.QueryEscape(stateValue)+"&code=good-code", nil)
 	replayReq.Header.Set("Accept", "application/json")
 	replayResp, err := http.DefaultClient.Do(replayReq)
 	if err != nil {
@@ -148,6 +150,29 @@ func TestEndToEndOAuthPersistenceReplayRefreshAndRevoke(t *testing.T) {
 		t.Fatal("oauth state replay succeeded")
 	}
 	_ = replayResp.Body.Close()
+
+	mismatchStart := requestJSON(t, http.MethodPost, app.URL+"/v1/oauth/google/start", admin, map[string]any{"capabilities": []string{"gmail.send"}, "subject": "google-subject-1"})
+	if mismatchStart.StatusCode != http.StatusOK {
+		t.Fatalf("mismatch start status=%d body=%s", mismatchStart.StatusCode, readBody(mismatchStart))
+	}
+	var mismatch struct { AuthorizationURL string `json:"authorization_url"` }
+	decodeResponse(t, mismatchStart, &mismatch)
+	mismatchURL, _ := url.Parse(mismatch.AuthorizationURL)
+	userinfoSubject = "different-google-subject"
+	mismatchReq, _ := http.NewRequest(http.MethodGet, app.URL+"/v1/oauth/google/callback?state="+url.QueryEscape(mismatchURL.Query().Get("state"))+"&code=good-code", nil)
+	mismatchReq.Header.Set("Accept", "application/json")
+	mismatchResp, err := http.DefaultClient.Do(mismatchReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mismatchResp.StatusCode == http.StatusOK {
+		t.Fatal("incremental authorization accepted a different Google subject")
+	}
+	_ = mismatchResp.Body.Close()
+	userinfoSubject = "google-subject-1"
+	if _, exists := st.Account("different-google-subject"); exists {
+		t.Fatal("mismatched Google subject was persisted")
+	}
 
 	reopened, err := store.Open(storePath)
 	if err != nil {
@@ -184,9 +209,36 @@ func TestEndToEndOAuthPersistenceReplayRefreshAndRevoke(t *testing.T) {
 	}
 	_ = revokeResp.Body.Close()
 	revoked, _ := reopened.Account("google-subject-1")
-	if revoked.Status != "revoked" || revoked.EncryptedRefreshToken != "" || revokeRequests != 1 {
+	if revoked.Status != "revoked" || revoked.EncryptedRefreshToken != "" || revokeRequests != 2 {
 		t.Fatalf("revoked=%+v requests=%d", revoked, revokeRequests)
 	}
+
+	rotateResp := requestJSON(t, http.MethodPost, restartedServer.URL+"/v1/clients/"+created.ID+"/rotate", admin, map[string]any{})
+	if rotateResp.StatusCode != http.StatusOK {
+		t.Fatalf("rotate status=%d body=%s", rotateResp.StatusCode, readBody(rotateResp))
+	}
+	var rotated struct { Token string `json:"token"` }
+	decodeResponse(t, rotateResp, &rotated)
+	oldTokenResp := requestJSON(t, http.MethodGet, restartedServer.URL+"/v1/capabilities", created.Token, nil)
+	if oldTokenResp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("old client token status=%d", oldTokenResp.StatusCode)
+	}
+	_ = oldTokenResp.Body.Close()
+	newTokenResp := requestJSON(t, http.MethodGet, restartedServer.URL+"/v1/capabilities", rotated.Token, nil)
+	if newTokenResp.StatusCode != http.StatusOK {
+		t.Fatalf("rotated client token status=%d body=%s", newTokenResp.StatusCode, readBody(newTokenResp))
+	}
+	_ = newTokenResp.Body.Close()
+	disableResp := requestJSON(t, http.MethodPost, restartedServer.URL+"/v1/clients/"+created.ID+"/disable", admin, map[string]any{})
+	if disableResp.StatusCode != http.StatusOK {
+		t.Fatalf("disable status=%d body=%s", disableResp.StatusCode, readBody(disableResp))
+	}
+	_ = disableResp.Body.Close()
+	disabledTokenResp := requestJSON(t, http.MethodGet, restartedServer.URL+"/v1/capabilities", rotated.Token, nil)
+	if disabledTokenResp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("disabled client token status=%d", disabledTokenResp.StatusCode)
+	}
+	_ = disabledTokenResp.Body.Close()
 }
 
 func requestJSON(t *testing.T, method, endpoint, token string, body any) *http.Response {

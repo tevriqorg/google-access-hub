@@ -56,7 +56,13 @@ func (h *Hub) StartAuthorization(req StartRequest) (StartResult, error) {
 		return StartResult{}, err
 	}
 	granted := map[string]bool{}
+	targetSubject := strings.TrimSpace(req.Subject)
+	loginHint := strings.TrimSpace(req.LoginHint)
 	if hasAccount {
+		targetSubject = account.Subject
+		if loginHint == "" {
+			loginHint = account.Email
+		}
 		for _, scope := range account.GrantedScopes {
 			granted[scope] = true
 		}
@@ -89,7 +95,7 @@ func (h *Hub) StartAuthorization(req StartRequest) (StartResult, error) {
 	if err := h.Store.PutPending(pending); err != nil {
 		return StartResult{}, err
 	}
-	authURL, err := h.Google.AuthorizationURL(authorizationScopes, state, secure.PKCEChallenge(verifier), req.LoginHint, !hasAccount || account.EncryptedRefreshToken == "")
+	authURL, err := h.Google.AuthorizationURL(authorizationScopes, state, secure.PKCEChallenge(verifier), loginHint, !hasAccount || account.EncryptedRefreshToken == "")
 	if err != nil {
 		return StartResult{}, err
 	}
@@ -119,6 +125,14 @@ func (h *Hub) FinishAuthorization(ctx context.Context, stateValue, code string) 
 	identity, err := h.Google.UserInfo(ctx, tokens.AccessToken)
 	if err != nil {
 		return store.Account{}, err
+	}
+	if pending.TargetSubject != "" && identity.Subject != pending.TargetSubject {
+		token := tokens.RefreshToken
+		if token == "" {
+			token = tokens.AccessToken
+		}
+		_ = h.Google.Revoke(ctx, token)
+		return store.Account{}, errors.New("google authorization returned a different account than requested")
 	}
 	existing, _ := h.Store.Account(identity.Subject)
 	encryptedRefresh := existing.EncryptedRefreshToken

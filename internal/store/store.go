@@ -31,6 +31,7 @@ type PendingAuth struct {
 	RequestedCapabilities []string  `json:"requested_capabilities"`
 	RequestedScopes       []string  `json:"requested_scopes"`
 	ClientID              string    `json:"client_id"`
+	TargetSubject         string    `json:"target_subject,omitempty"`
 	LoginHint             string    `json:"login_hint,omitempty"`
 	ExpiresAt             time.Time `json:"expires_at"`
 	CreatedAt             time.Time `json:"created_at"`
