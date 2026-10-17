@@ -1,0 +1,6 @@
+/data/
+/dist/
+*.tmp
+.env
+.env.*
+!.env.example
