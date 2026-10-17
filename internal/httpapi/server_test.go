@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tevriqorg/google-access-hub/internal/googleoauth"
 	"github.com/tevriqorg/google-access-hub/internal/hub"
@@ -275,4 +276,34 @@ func readBody(res *http.Response) string {
 func writeFakeJSON(w http.ResponseWriter, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(value)
+}
+
+func TestPerPrincipalRateLimit(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "hub.json")
+	st, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := bytes.Repeat([]byte{9}, 32)
+	h := &hub.Hub{Store: st, MasterKey: key}
+	admin := "rate-limit-admin-token-rate-limit-admin-token"
+	api := &Server{Hub: h, Store: st, AdminTokenHash: secure.HashToken(admin), RateLimit: 2, RateWindow: time.Hour}
+	app := httptest.NewServer(api.Handler())
+	defer app.Close()
+
+	for i := 0; i < 2; i++ {
+		res := requestJSON(t, http.MethodGet, app.URL+"/v1/accounts", admin, nil)
+		if res.StatusCode != http.StatusOK {
+			t.Fatalf("request %d status=%d body=%s", i+1, res.StatusCode, readBody(res))
+		}
+		_ = res.Body.Close()
+	}
+	limited := requestJSON(t, http.MethodGet, app.URL+"/v1/accounts", admin, nil)
+	if limited.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("limited status=%d body=%s", limited.StatusCode, readBody(limited))
+	}
+	if limited.Header.Get("Retry-After") == "" {
+		t.Fatal("rate-limited response missing Retry-After")
+	}
+	_ = limited.Body.Close()
 }

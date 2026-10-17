@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/tevriqorg/google-access-hub/internal/capability"
@@ -21,6 +22,15 @@ type Server struct {
 	Hub            *hub.Hub
 	Store          *store.Store
 	AdminTokenHash string
+	RateLimit      int
+	RateWindow     time.Duration
+	rateMu         sync.Mutex
+	rateCounters   map[string]rateCounter
+}
+
+type rateCounter struct {
+	StartedAt time.Time
+	Count     int
 }
 
 type principal struct {
@@ -326,6 +336,11 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request) (principal, b
 		return principal{}, false
 	}
 	if s.AdminTokenHash != "" && secure.TokenHashEqual(s.AdminTokenHash, token) {
+		if !s.allowRate("admin") {
+			w.Header().Set("Retry-After", "60")
+			writeError(w, http.StatusTooManyRequests, "rate limit exceeded")
+			return principal{}, false
+		}
 		return principal{ID: "admin", Admin: true, Allowed: map[string]bool{}}, true
 	}
 	parts := strings.Split(token, ".")
@@ -338,11 +353,43 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request) (principal, b
 		writeError(w, http.StatusUnauthorized, "invalid service credential")
 		return principal{}, false
 	}
+	if !s.allowRate(client.ID) {
+		w.Header().Set("Retry-After", "60")
+		writeError(w, http.StatusTooManyRequests, "rate limit exceeded")
+		return principal{}, false
+	}
 	allowed := map[string]bool{}
 	for _, c := range client.AllowedCapabilities {
 		allowed[c] = true
 	}
 	return principal{ID: client.ID, Allowed: allowed}, true
+}
+
+func (s *Server) allowRate(id string) bool {
+	limit := s.RateLimit
+	if limit <= 0 {
+		limit = 120
+	}
+	window := s.RateWindow
+	if window <= 0 {
+		window = time.Minute
+	}
+	now := time.Now().UTC()
+	s.rateMu.Lock()
+	defer s.rateMu.Unlock()
+	if s.rateCounters == nil {
+		s.rateCounters = map[string]rateCounter{}
+	}
+	counter := s.rateCounters[id]
+	if counter.StartedAt.IsZero() || now.Sub(counter.StartedAt) >= window {
+		counter = rateCounter{StartedAt: now}
+	}
+	if counter.Count >= limit {
+		return false
+	}
+	counter.Count++
+	s.rateCounters[id] = counter
+	return true
 }
 
 func allowedCapabilities(p principal, caps []string) bool {
