@@ -91,7 +91,7 @@ func (h *Hub) StartAuthorization(req StartRequest) (StartResult, error) {
 	if err != nil {
 		return StartResult{}, err
 	}
-	pending := store.PendingAuth{StateHash: stateHash, EncryptedPKCEVerifier: encryptedVerifier, RequestedCapabilities: requestedCaps, RequestedScopes: authorizationScopes, ClientID: req.ClientID, LoginHint: strings.TrimSpace(req.LoginHint), CreatedAt: now, ExpiresAt: now.Add(10 * time.Minute)}
+	pending := store.PendingAuth{StateHash: stateHash, EncryptedPKCEVerifier: encryptedVerifier, RequestedCapabilities: requestedCaps, RequestedScopes: authorizationScopes, ClientID: req.ClientID, TargetSubject: targetSubject, LoginHint: loginHint, CreatedAt: now, ExpiresAt: now.Add(10 * time.Minute)}
 	if err := h.Store.PutPending(pending); err != nil {
 		return StartResult{}, err
 	}
