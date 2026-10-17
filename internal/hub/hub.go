@@ -120,7 +120,7 @@ func (h *Hub) FinishAuthorization(ctx context.Context, stateValue, code string) 
 	if err != nil {
 		return store.Account{}, err
 	}
-	existing, hasExisting := h.Store.Account(identity.Subject)
+	existing, _ := h.Store.Account(identity.Subject)
 	encryptedRefresh := existing.EncryptedRefreshToken
 	if strings.TrimSpace(tokens.RefreshToken) != "" {
 		encryptedRefresh, err = secure.Encrypt(h.MasterKey, "refresh:"+identity.Subject, tokens.RefreshToken)
@@ -161,7 +161,7 @@ func (h *Hub) RefreshAccount(ctx context.Context, subject string) (googleoauth.T
 	}
 	tokens, err := h.Google.Refresh(ctx, refresh)
 	if err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "invalid_grant") {
+		if googleoauth.IsErrorCode(err, "invalid_grant") {
 			account.Status = "reauthorization_required"
 			account.UpdatedAt = h.now()
 			_ = h.Store.UpsertAccount(account)

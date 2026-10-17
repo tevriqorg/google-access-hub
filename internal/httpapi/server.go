@@ -228,7 +228,7 @@ func (s *Server) oauthCallback(w http.ResponseWriter, r *http.Request) {
 		writeCallback(w, r, http.StatusBadRequest, publicError(err))
 		return
 	}
-	s.auditEvent("oauth-callback", "oauth.complete", account.Subject, "", true, "email="+account.Email)
+	s.auditEvent("oauth-callback", "oauth.complete", account.Subject, "", true, "")
 	writeCallback(w, r, http.StatusOK, "Google authorization stored for "+account.Email+". You may close this window.")
 }
 

@@ -22,10 +22,17 @@ import (
 func TestEndToEndOAuthPersistenceReplayRefreshAndRevoke(t *testing.T) {
 	refreshRequests := 0
 	revokeRequests := 0
+	invalidateRefresh := false
 	google := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/token":
 			_ = r.ParseForm()
+			if r.Form.Get("grant_type") == "refresh_token" && invalidateRefresh {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				writeFakeJSON(w, map[string]any{"error": "invalid_grant", "error_description": "revoked by fake provider"})
+				return
+			}
 			switch r.Form.Get("grant_type") {
 			case "authorization_code":
 				if r.Form.Get("code") != "good-code" || r.Form.Get("code_verifier") == "" {
@@ -153,6 +160,19 @@ func TestEndToEndOAuthPersistenceReplayRefreshAndRevoke(t *testing.T) {
 	}
 	if refreshed.AccessToken != "access-refreshed" || refreshed.RefreshToken != "" || refreshRequests != 1 {
 		t.Fatalf("refreshed=%+v requests=%d", refreshed, refreshRequests)
+	}
+	invalidateRefresh = true
+	if _, err := restartedHub.RefreshAccount(context.Background(), "google-subject-1"); !googleoauth.IsErrorCode(err, "invalid_grant") {
+		t.Fatalf("expected invalid_grant, got %v", err)
+	}
+	reauth, _ := reopened.Account("google-subject-1")
+	if reauth.Status != "reauthorization_required" {
+		t.Fatalf("account status=%q, want reauthorization_required", reauth.Status)
+	}
+	invalidateRefresh = false
+	reauth.Status = "active"
+	if err := reopened.UpsertAccount(reauth); err != nil {
+		t.Fatal(err)
 	}
 
 	restartedAPI := &Server{Hub: restartedHub, Store: reopened, AdminTokenHash: secure.HashToken(admin)}

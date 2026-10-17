@@ -50,6 +50,12 @@ func TestTokenUserinfoRefreshAndRevoke(t *testing.T) {
 				_, _ = w.Write([]byte(`{"access_token":"access-2","token_type":"Bearer","expires_in":3600,"scope":"openid email"}`))
 				return
 			}
+			if r.Form.Get("grant_type") == "refresh_token" && r.Form.Get("refresh_token") == "revoked-refresh" {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"error":"invalid_grant","error_description":"sensitive provider text must not be surfaced"}`))
+				return
+			}
 			http.Error(w, "bad grant", 400)
 		case "/userinfo":
 			if r.Header.Get("Authorization") != "Bearer access-1" {
@@ -84,6 +90,11 @@ func TestTokenUserinfoRefreshAndRevoke(t *testing.T) {
 	refreshed, err := c.Refresh(context.Background(), "refresh-1")
 	if err != nil || refreshed.AccessToken != "access-2" {
 		t.Fatalf("refresh result=%+v err=%v", refreshed, err)
+	}
+	if _, err := c.Refresh(context.Background(), "revoked-refresh"); !IsErrorCode(err, "invalid_grant") {
+		t.Fatalf("invalid_grant error=%v", err)
+	} else if strings.Contains(err.Error(), "sensitive provider text") {
+		t.Fatalf("oauth error leaked provider description: %v", err)
 	}
 	if err := c.Revoke(context.Background(), "refresh-1"); err != nil {
 		t.Fatal(err)

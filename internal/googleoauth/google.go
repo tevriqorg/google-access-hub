@@ -44,6 +44,24 @@ type TokenSet struct {
 	Expiry       time.Time
 }
 
+
+type EndpointError struct {
+	StatusCode int
+	Code string
+}
+
+func (e *EndpointError) Error() string {
+	if e.Code != "" {
+		return fmt.Sprintf("google token endpoint returned %s (status %d)", e.Code, e.StatusCode)
+	}
+	return fmt.Sprintf("google token endpoint returned status %d", e.StatusCode)
+}
+
+func IsErrorCode(err error, code string) bool {
+	var endpointErr *EndpointError
+	return errors.As(err, &endpointErr) && endpointErr.Code == code
+}
+
 type Identity struct {
 	Subject, Email, Name string
 	EmailVerified        bool
@@ -137,7 +155,11 @@ func (c *Client) exchange(ctx context.Context, values url.Values) (TokenSet, err
 		return TokenSet{}, err
 	}
 	if res.StatusCode/100 != 2 {
-		return TokenSet{}, fmt.Errorf("google token endpoint returned status %d", res.StatusCode)
+		var oauthError struct {
+			Error string `json:"error"`
+		}
+		_ = json.Unmarshal(raw, &oauthError)
+		return TokenSet{}, &EndpointError{StatusCode: res.StatusCode, Code: safeErrorCode(oauthError.Error)}
 	}
 	var out struct {
 		AccessToken  string `json:"access_token"`
@@ -241,4 +263,18 @@ func first(value, fallback string) string {
 		return strings.TrimSpace(value)
 	}
 	return fallback
+}
+
+func safeErrorCode(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || len(value) > 64 {
+		return ""
+	}
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' || r == '.' {
+			continue
+		}
+		return ""
+	}
+	return value
 }
