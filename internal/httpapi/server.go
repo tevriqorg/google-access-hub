@@ -164,7 +164,7 @@ func (s *Server) clients(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	idRaw, err := secure.RandomToken(12)
+	idRaw, err := secure.RandomToken(16)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "unable to create client")
 		return
