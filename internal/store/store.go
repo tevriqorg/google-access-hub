@@ -125,8 +125,7 @@ func (s *Store) saveLocked() error {
         _ = f.Close()
         if !ok { _ = os.Remove(tmp) }
     }()
-    if _, err := f.Write(append(raw, '
-')); err != nil { return err }
+    if _, err := f.Write(append(raw, '\n')); err != nil { return err }
     if err := f.Sync(); err != nil { return err }
     if err := f.Close(); err != nil { return err }
     if err := os.Rename(tmp, s.path); err != nil { return err }
