@@ -19,3 +19,5 @@ v0.1 implements Google User OAuth. Future lanes may add service accounts and pro
 Refresh tokens are AES-256-GCM encrypted at rest with a versioned envelope. PKCE verifiers stored for pending authorization transactions use the same encrypted envelope and expire quickly. Google access tokens are not persisted.
 
 The default downstream pattern is provider-specific brokerage, not raw token export. A future token lease escape hatch, if ever enabled, must be explicitly high-trust and may never export refresh tokens.
+
+Authenticated admin and service principals are independently rate-limited; the v0.1 default is 120 requests per minute per principal. OAuth state plus PKCE bind the authorization flow. The Hub does not consume Google ID tokens in v0.1, so an OIDC nonce is not part of this userinfo-based flow; a nonce becomes mandatory if a future implementation consumes ID tokens.
