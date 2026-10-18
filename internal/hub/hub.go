@@ -64,7 +64,7 @@ func (h *Hub) StartAuthorization(req StartRequest) (StartResult, error) {
 			loginHint = account.Email
 		}
 		for _, scope := range account.GrantedScopes {
-			granted[scope] = true
+			granted[capability.CanonicalScope(scope)] = true
 		}
 	}
 	missing := make([]string, 0)
@@ -235,7 +235,7 @@ func (h *Hub) ScopeStatus(subject string, capabilities []string) (required, gran
 	}
 	grantSet := map[string]bool{}
 	if ok {
-		granted = append([]string(nil), account.GrantedScopes...)
+		granted = merge(nil, account.GrantedScopes)
 		for _, s := range granted {
 			grantSet[s] = true
 		}
@@ -284,4 +284,10 @@ func dedupe(values []string) []string {
 	sort.Strings(out)
 	return out
 }
-func merge(a, b []string) []string { return dedupe(append(append([]string(nil), a...), b...)) }
+func merge(a, b []string) []string {
+	raw := append(append([]string(nil), a...), b...)
+	for i, scope := range raw {
+		raw[i] = capability.CanonicalScope(scope)
+	}
+	return dedupe(raw)
+}
