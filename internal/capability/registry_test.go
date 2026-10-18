@@ -14,3 +14,20 @@ func TestScopesAreDeduplicatedAndUnknownRejected(t *testing.T) {
 		t.Fatal("unknown capability accepted")
 	}
 }
+
+func TestCanonicalScopeGoogleIdentityAliases(t *testing.T) {
+	cases := map[string]string{
+		"openid": "openid",
+		"email": "email",
+		"profile": "profile",
+		"https://www.googleapis.com/auth/userinfo.email": "email",
+		"https://www.googleapis.com/auth/userinfo.profile": "profile",
+		"https://www.googleapis.com/auth/gmail.readonly": "https://www.googleapis.com/auth/gmail.readonly",
+		"https://www.googleapis.com/auth/drive.readonly": "https://www.googleapis.com/auth/drive.readonly",
+	}
+	for raw, expected := range cases {
+		if got := CanonicalScope(raw); got != expected {
+			t.Errorf("CanonicalScope(%q)=%q, want %q", raw, got, expected)
+		}
+	}
+}

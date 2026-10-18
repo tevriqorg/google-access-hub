@@ -25,6 +25,19 @@ var registry = map[string][]string{
 	"tasks.write":         {"https://www.googleapis.com/auth/tasks"},
 }
 
+// CanonicalScope normalizes only documented Google identity scope aliases.
+// Other OAuth scope strings are preserved verbatim to avoid privilege confusion.
+func CanonicalScope(scope string) string {
+	switch scope {
+	case "https://www.googleapis.com/auth/userinfo.email":
+		return "email"
+	case "https://www.googleapis.com/auth/userinfo.profile":
+		return "profile"
+	default:
+		return scope
+	}
+}
+
 func Scopes(capabilities []string) ([]string, error) {
 	unique := map[string]bool{}
 	for _, name := range capabilities {
